@@ -51,6 +51,28 @@ pub fn end(self: Backend) GenericError!void {
     try self.impl.end();
 }
 
+/// Called when dvui wish to switch OS window context.
+///
+/// If the backend implement multiple OS windows, it should create a new windows
+/// for each new `WinId` passed, and switch the relevant context to the correct
+/// existing window said window already exists.
+///
+/// If not, the backend should create it's only OS window on the first call to
+/// this function and can default to no-op for the subsequent ones.
+pub fn windowSwitchTo(self: Backend, win_id: dvui.WinId) void {
+    return self.impl.windowSwitchTo(win_id);
+}
+/// Called when dvui wants to close an OS window.
+///
+/// If the backend implements multiple OS windows, it should destroy the requested
+/// OS window and associated ressources.
+///
+/// If not, the backend can default to no-op, except when `destroy_win_id`
+/// is the WinID of it's first (and only) window, in which case it must destroy it.
+pub fn windowDestroy(self: Backend, destroy_win_id: dvui.WinId) void {
+    return self.impl.windowDestroy(destroy_win_id);
+}
+
 /// Return size of the window in physical pixels.  For a 300x200 retina
 /// window (so actually 600x400), this should return 600x400.
 pub fn pixelSize(self: Backend) dvui.Size.Physical {

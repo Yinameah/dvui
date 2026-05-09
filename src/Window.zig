@@ -170,6 +170,7 @@ pub fn init(
         .backend = backend_ctx,
         .accesskit = .{},
     };
+    self.backend.windowSwitchTo(self.wd.id);
 
     if (init_opts.theme) |t| {
         self.themeSet(t);

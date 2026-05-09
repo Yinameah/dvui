@@ -8,6 +8,7 @@ pub const Backend = enum {
     sdl,
     sdl2,
     sdl3,
+    sdl3_mult_win,
     sdl3gpu,
     raylib,
     raylib_zig,

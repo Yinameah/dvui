@@ -566,6 +566,60 @@ pub fn buildBackend(backend: Backend, test_dvui_and_app: bool, dvui_opts_in: Dvu
                 _ = addExample("sdl3-mini", b.path("examples/sdl-mini.zig"), true, example_opts, dvui_opts);
             }
         },
+        .sdl3_mult_win => {
+            if (target.result.abi.isAndroid()) {
+                dvui_opts.setDefaults(.{ .libc = true, .freetype = false, .tiny_file_dialogs = false, .stb_image = true, .tree_sitter = false });
+            } else {
+                dvui_opts.setDefaults(.{ .libc = true, .freetype = true, .tiny_file_dialogs = true, .stb_image = true, .tree_sitter = true });
+            }
+
+            const sdl_translate_c = b.addTranslateC(.{
+                .root_source_file = b.path("src/backends/sdl3-c.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+            const sdl_mod = b.addModule("sdl3", .{
+                .root_source_file = b.path("src/backends/mult-win-sdl.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+                .imports = &.{
+                    .{
+                        .name = "sdl3-c",
+                        .module = sdl_translate_c.createModule(),
+                    },
+                },
+            });
+
+            if (!target.result.abi.isAndroid()) {
+                dvui_opts.addChecks(sdl_mod, "sdl3-backend");
+                dvui_opts.addTests(sdl_mod, "sdl3-backend");
+            }
+            const sdl3_options = b.addOptions();
+
+            linkSdl3(sdl_mod, sdl_translate_c, sdl3_options, dvui_opts_in);
+
+            const dvui_sdl = addDvuiModule("dvui_sdl3", dvui_opts);
+            if (!target.result.abi.isAndroid()) {
+                dvui_opts.addChecks(dvui_sdl, "dvui_sdl3");
+                if (test_dvui_and_app) {
+                    dvui_opts.addTests(dvui_sdl, "dvui_sdl3");
+                }
+            }
+
+            linkBackend(dvui_sdl, sdl_mod);
+            if (!target.result.abi.isAndroid()) {
+                const example_opts: ExampleOptions = .{
+                    .dvui_mod = dvui_sdl,
+                    .backend_name = "sdl-backend",
+                    .backend_mod = sdl_mod,
+                };
+                _ = addExample("mult-win-sdl3-standalone", b.path("examples/sdl-standalone.zig"), true, example_opts, dvui_opts);
+                _ = addExample("mult-win-sdl3-ontop", b.path("examples/sdl-ontop.zig"), true, example_opts, dvui_opts);
+                _ = addExample("mult-win-sdl3-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
+                _ = addExample("mult-win-sdl3-mini", b.path("examples/sdl-mini.zig"), true, example_opts, dvui_opts);
+            }
+        },
         .raylib => {
             if (dvui_opts.vertex_index != .u16) {
                 std.log.err("Raylib backend requires u16 vertex index", .{});

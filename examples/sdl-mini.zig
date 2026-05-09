@@ -35,20 +35,23 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("SDL version: {f}", .{SDLBackend.getSDLVersion()});
 
     // init SDL backend (creates and owns OS window)
-    var backend = try SDLBackend.initWindow(.{
-        .io = init.io,
-        .allocator = init.gpa,
-        .size = .{ .w = 1300.0, .h = 800.0 },
-        .min_size = .{ .w = 250.0, .h = 350.0 },
-        .vsync = true,
-        .title = "DVUI SDL dirty playground",
-    });
-    backend.initial_scale = 1.6;
+    var backend = SDLBackend.init(init.io);
+    // var backend = try SDLBackend.initWindow(init.io, .{
+    //     // CAUTION : this allocator might be needed, no ?
+    //     .allocator = init.gpa,
+    //     .size = .{ .w = 1300.0, .h = 800.0 },
+    //     .min_size = .{ .w = 250.0, .h = 350.0 },
+    //     .vsync = true,
+    //     .title = "DVUI SDL dirty playground",
+    // });
+    // var backend = SDLBackend.init(init.io);
     // Okaaaay !! here I store a copy otherwise ...
     g_backend = &backend;
     defer backend.deinit();
 
     _ = SDLBackend.c.SDL_EnableScreenSaver();
+
+    std.debug.print("-----> initial_scale = {}\n", .{backend.initial_scale});
 
     // init dvui Window (maps onto a single OS window)
     var win = try dvui.Window.init(@src(), init.gpa, backend.backend(), .{
@@ -79,8 +82,13 @@ pub fn main(init: std.process.Init) !void {
 
         // if dvui widgets might not cover the whole window, then need to clear
         // the previous frame's render
-        _ = SDLBackend.c.SDL_SetRenderDrawColor(backend.renderer, 0, 0, 0, 0);
-        _ = SDLBackend.c.SDL_RenderClear(backend.renderer);
+        if (SDLBackend.kind == .sdl3) {
+            _ = SDLBackend.c.SDL_SetRenderDrawColor(backend.renderer, 0, 0, 0, 0);
+            _ = SDLBackend.c.SDL_RenderClear(backend.renderer);
+        } else {
+            _ = SDLBackend.c.SDL_SetRenderDrawColor(backend.window_list.getCurrent().renderer, 0, 0, 0, 0);
+            _ = SDLBackend.c.SDL_RenderClear(backend.window_list.getCurrent().renderer);
+        }
 
         const keep_running = gui_frame();
         if (!keep_running) break :main_loop;
@@ -127,7 +135,7 @@ fn gui_frame() bool {
     //     backend.destroyExtraWindow() catch return false;
     // }
 
-    colorBox();
+    // colorBox();
 
     if (dvui.button(@src(), "My test for dedicated OS Window", .{}, .{})) {
         my_app_data.float1 = !my_app_data.float1;
@@ -214,19 +222,19 @@ fn colorBox() void {
     );
     _ = SDLBackend.c.SDL_RenderFillRect(backend.renderer, &rect);
 
-    for (backend.child_os_wins) |os_wins| {
-        if (os_wins) |win| {
-            var extra_rect: SDLBackend.c.SDL_FRect = .{ .x = 50, .y = 50, .w = 200, .h = 200 };
-            _ = SDLBackend.c.SDL_SetRenderDrawColor(
-                win.renderer,
-                my_app_data.color.r,
-                my_app_data.color.g,
-                my_app_data.color.b,
-                my_app_data.color.a,
-            );
-            _ = SDLBackend.c.SDL_RenderFillRect(win.renderer, &extra_rect);
-        }
-    }
+    // for (backend.window_list.items) |os_wins| {
+    //     if (os_wins) |win| {
+    //         var extra_rect: SDLBackend.c.SDL_FRect = .{ .x = 50, .y = 50, .w = 200, .h = 200 };
+    //         _ = SDLBackend.c.SDL_SetRenderDrawColor(
+    //             win.renderer,
+    //             my_app_data.color.r,
+    //             my_app_data.color.g,
+    //             my_app_data.color.b,
+    //             my_app_data.color.a,
+    //         );
+    //         _ = SDLBackend.c.SDL_RenderFillRect(win.renderer, &extra_rect);
+    //     }
+    // }
 }
 
 test {

@@ -384,6 +384,12 @@ pub const Id = enum(u64) {
     }
 };
 
+/// This is a OS window id.
+/// For now it just wrapps a dvui.Id
+/// TODO : explain the contract.
+/// TODO : this is for communication with backend, don't know if this is the right place to declare
+pub const WinId = dvui.Id;
+
 /// Current `Window` (i.e. the one that widgets will be added to).
 /// Managed by `Window.begin` / `Window.end`
 pub var current_window: ?*Window = null;

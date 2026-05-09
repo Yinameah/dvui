@@ -10,16 +10,81 @@ pub const c = if (sdl3) @import("sdl3-c") else @import("sdl2-c");
 /// Only available in sdl2
 extern "SDL_config" fn MACOS_enable_scroll_momentum() callconv(.c) void;
 
-pub const kind: dvui.enums.Backend = if (sdl3) .sdl3 else .sdl2;
+pub const kind: dvui.enums.Backend = .sdl3_mult_win;
 
 pub const SDLBackend = @This();
 pub const Context = *SDLBackend;
 
 const log = std.log.scoped(.SDLBackend);
 
+// FIXME : this is maybe a bit dumb, but has advantage to allow me
+// to NOT deal with allocation at this stage.
+const OsWindow = struct {
+    id: dvui.WinId,
+    window: *c.SDL_Window,
+    renderer: *c.SDL_Renderer,
+
+    fn init(id: dvui.WinId) OsWindow {
+        return OsWindowCreate(id) catch unreachable;
+    }
+    fn deinit(self: *OsWindow) void {
+        OsWindowDestroy(self);
+    }
+};
+
+const OsWindowList = struct {
+    const window_max_count = 5;
+    current: ?dvui.Id = null,
+    items: [window_max_count]?OsWindow = @splat(null),
+
+    // fixme : SHOULD NOT be `pub` passed current debug activities
+    pub fn getCurrent(self: *OsWindowList) OsWindow {
+        const current = self.current orelse @panic("current window not set");
+        for (self.items) |win_maybe| {
+            if (win_maybe) |win| {
+                if (win.id == current) return win;
+            }
+        }
+        @panic("Current window doesn't exist");
+    }
+    fn setCurrent(self: *OsWindowList, id: dvui.WinId) error{WindowDoesNotExists}!void {
+        for (self.items) |win_maybe| {
+            if (win_maybe) |win| {
+                if (win.id == id) {
+                    self.current = id;
+                    return;
+                }
+            }
+        }
+        return error.WindowDoesNotExists;
+    }
+    fn create(self: *OsWindowList, id: dvui.WinId) void {
+        for (self.items, 0..) |win_maybe, i| {
+            if (win_maybe == null) {
+                self.items[i] = OsWindow.init(id);
+                return;
+            }
+        }
+        @panic("No space left to add more OS windows");
+    }
+    fn destroy(self: *OsWindowList, id: dvui.WinId) void {
+        if (self.current == id) {
+            @panic("cannot destroy current window");
+        }
+        for (self.items, 0..) |win_maybe, i| {
+            if (win_maybe) |win| {
+                if (win.id == id) {
+                    self.items[i].?.deinit();
+                    self.items[i] = null;
+                }
+            }
+        }
+        @panic("Could not find window to destroy");
+    }
+};
+
 io: std.Io,
-window: *c.SDL_Window = undefined,
-renderer: *c.SDL_Renderer = undefined,
+window_list: OsWindowList = .{},
 ak_should_initialized: bool = dvui.accesskit_enabled,
 we_own_window: bool = false,
 touch_mouse_events: bool = false,
@@ -30,20 +95,21 @@ last_window_size: dvui.Size.Natural = .{ .w = 800, .h = 600 },
 cursor_last: dvui.enums.Cursor = .arrow,
 cursor_backing: [cursor_enum_count]?*c.SDL_Cursor = @splat(null),
 cursor_backing_tried: [cursor_enum_count]bool = @splat(false),
+// FIXME : this is a "per-frame" arena, right ? to confirm and document here
 arena: std.mem.Allocator = undefined,
 
 const cursor_enum_count = @typeInfo(dvui.enums.Cursor).@"enum".fields.len;
 
 pub const InitOptions = struct {
     /// Io backend and dvui should use, will be assigned to dvui.io.
-    // io: std.Io,
+    io: std.Io,
     /// SDL2 uses this to query for environment variables for scale:
     /// - QT_AUTO_SCREEN_SCALE_FACTOR
     /// - QT_SCALE_FACTOR
     /// - GDK_SCALE
     environ_map: ?*std.process.Environ.Map = null,
     /// The allocator used for temporary allocations used during init()
-    allocator: std.mem.Allocator = undefined,
+    allocator: std.mem.Allocator,
     /// The initial size of the application window
     size: dvui.Size,
     /// Set the minimum size of the window
@@ -62,7 +128,7 @@ pub const InitOptions = struct {
     transparent: bool = false,
 };
 
-pub fn initWindow(self: *SDLBackend, options: InitOptions) !void {
+pub fn initWindow(options: InitOptions) !SDLBackend {
     if (!sdl3) _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "linear");
     // needed according to https://discourse.libsdl.org/t/possible-to-run-sdl2-headless/25665/2
     // but getting error "offscreen not available"
@@ -147,9 +213,7 @@ pub fn initWindow(self: *SDLBackend, options: InitOptions) !void {
     const pma_blend = c.SDL_ComposeCustomBlendMode(c.SDL_BLENDFACTOR_ONE, c.SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, c.SDL_BLENDOPERATION_ADD, c.SDL_BLENDFACTOR_ONE, c.SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, c.SDL_BLENDOPERATION_ADD);
     try toErr(c.SDL_SetRenderDrawBlendMode(renderer, pma_blend), "SDL_SetRenderDrawBlendMode in initWindow");
 
-    var back = self; //init(io); //, window, renderer);
-    back.window = window;
-    back.renderer = renderer;
+    var back = init(options.io, window, renderer);
     back.ak_should_initialized = show_window_in_begin;
     back.we_own_window = true;
 
@@ -194,24 +258,24 @@ pub fn initWindow(self: *SDLBackend, options: InitOptions) !void {
                 //*customization: -color
                 //Xft.dpi: 96
                 //Xft.antialias: 1
-                // if (mdpi == null and builtin.os.tag == .linux) {
-                //     const result: ?std.process.RunResult = std.process.run(options.allocator, options.io, .{
-                //         .argv = &.{ "xrdb", "-get", "Xft.dpi" },
-                //     }) catch null;
-                //     if (result) |r| {
-                //         defer options.allocator.free(r.stdout);
-                //         defer options.allocator.free(r.stderr);
-                //         const end_digits = std.mem.indexOfNone(u8, r.stdout, &.{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' }) orelse r.stdout.len;
-                //         const xrdb_dpi = std.fmt.parseInt(u32, r.stdout[0..end_digits], 10) catch null;
-                //         if (xrdb_dpi) |dpi| {
-                //             mdpi = @floatFromInt(dpi);
-                //         }
-                //
-                //         if (mdpi) |dpi| {
-                //             log.info("dpi {d} from xrdb -get Xft.dpi", .{dpi});
-                //         }
-                //     }
-                // }
+                if (mdpi == null and builtin.os.tag == .linux) {
+                    const result: ?std.process.RunResult = std.process.run(options.allocator, options.io, .{
+                        .argv = &.{ "xrdb", "-get", "Xft.dpi" },
+                    }) catch null;
+                    if (result) |r| {
+                        defer options.allocator.free(r.stdout);
+                        defer options.allocator.free(r.stderr);
+                        const end_digits = std.mem.indexOfNone(u8, r.stdout, &.{ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' }) orelse r.stdout.len;
+                        const xrdb_dpi = std.fmt.parseInt(u32, r.stdout[0..end_digits], 10) catch null;
+                        if (xrdb_dpi) |dpi| {
+                            mdpi = @floatFromInt(dpi);
+                        }
+
+                        if (mdpi) |dpi| {
+                            log.info("dpi {d} from xrdb -get Xft.dpi", .{dpi});
+                        }
+                    }
+                }
 
                 // This doesn't seem to be helping anybody and sometimes hurts,
                 // so we'll try disabling it outside of windows for now.
@@ -269,9 +333,6 @@ pub fn initWindow(self: *SDLBackend, options: InitOptions) !void {
             try back.setIconFromFileContent(bytes);
         }
     }
-    // Ok, I'll just hard code this here cause it's more confortable
-    // but it's a mess I don't understand and not very important for now.
-    back.initial_scale = 1.6;
 
     if (options.min_size) |size| {
         if (builtin.abi.isAndroid()) {
@@ -300,35 +361,69 @@ pub fn initWindow(self: *SDLBackend, options: InitOptions) !void {
             if (sdl3) try toErr(ret, "SDL_SetWindowMaximumSize in initWindow");
         }
     }
+
+    return back;
 }
 
-var main_win_id: ?dvui.WinId = null;
 pub fn windowSwitchTo(self: *SDLBackend, win_id: dvui.WinId) void {
-    if (main_win_id) |_| return;
-    self.initWindow(.{
-        .size = .{ .w = 1300.0, .h = 800.0 },
-        .min_size = .{ .w = 250.0, .h = 350.0 },
-        .vsync = true,
-        .title = "DVUI SDL dirty playground",
-    }) catch @panic("initWindow failed");
-    main_win_id = win_id;
+    const current = self.window_list.current orelse .zero;
+    std.debug.print("switchTo : {f} -> {f}\n", .{ current, win_id });
+    self.window_list.setCurrent(win_id) catch {
+        self.window_list.create(win_id);
+        self.window_list.setCurrent(win_id) catch unreachable;
+    };
 }
 pub fn windowDestroy(self: *SDLBackend, destroy_win_id: dvui.WinId) void {
-    _ = self; // autofix
-    _ = destroy_win_id; // autofix
-    return;
+    self.window_list.destroy(destroy_win_id);
+}
+
+fn OsWindowCreate(id: dvui.WinId) !OsWindow {
+    // FIXME : don't forget to deal with options from original code now hardcoded
+    // FIXME : deal with sdl2, probably need to refactor a bit around here,
+    // notably will be worth to have a private CreateWindow, maybe one for each SDL...
+    const new_win = c.SDL_CreateWindow(
+        "extra window",
+        @as(c_int, @intFromFloat(800)),
+        @as(c_int, @intFromFloat(800)),
+        @intCast(c.SDL_WINDOW_HIGH_PIXEL_DENSITY | c.SDL_WINDOW_RESIZABLE),
+    ) orelse return logErr("SDL_CreateWindow in createExtraWindow");
+
+    errdefer c.SDL_DestroyWindow(new_win);
+
+    const props = c.SDL_CreateProperties();
+    defer c.SDL_DestroyProperties(props);
+    try toErr(
+        c.SDL_SetPointerProperty(props, c.SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, new_win),
+        "SDL_SetPointerProperty in createExtraWindow",
+    );
+    // vsync
+    try toErr(
+        c.SDL_SetNumberProperty(props, c.SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 1),
+        "SDL_SetNumberProperty in createExtraWindow",
+    );
+    const new_renderer = c.SDL_CreateRendererWithProperties(props) orelse return logErr("SDL_CreateRendererWithProperties in createExtraWindow");
+
+    errdefer c.SDL_DestroyRenderer(new_renderer);
+
+    return .{ .id = id, .window = new_win, .renderer = new_renderer };
+}
+fn OsWindowDestroy(os_win: *OsWindow) void {
+    c.SDL_DestroyRenderer(os_win.renderer);
+    c.SDL_DestroyWindow(os_win.window);
 }
 
 pub fn init(io: std.Io) SDLBackend {
     dvui.io = io;
-    return SDLBackend{ .io = io }; //, .window = window, .renderer = renderer };
+    return SDLBackend{ .io = io };
 }
 
 const SDL_ERROR = if (sdl3) bool else c_int;
 const SDL_SUCCESS: SDL_ERROR = if (sdl3) true else 0;
 inline fn toErr(res: SDL_ERROR, what: []const u8) !void {
     if (res == SDL_SUCCESS) return;
-    return logErr(what);
+    log.err("{s} failed, error={s}", .{ what, c.SDL_GetError() });
+    @panic("BackendError");
+    // return logErr(what);
 }
 
 inline fn logErr(what: []const u8) dvui.Backend.GenericError {
@@ -372,9 +467,9 @@ pub fn setIconFromABGR8888(self: *SDLBackend, data: [*]const u8, icon_w: c_int, 
 
     if (sdl3) {
         // `toErr` logs the error for us
-        toErr(c.SDL_SetWindowIcon(self.window, surface), "SDL_SetWindowIcon in setIconFromABGR8888") catch {};
+        toErr(c.SDL_SetWindowIcon(self.window_list.getCurrent().window, surface), "SDL_SetWindowIcon in setIconFromABGR8888") catch {};
     } else {
-        c.SDL_SetWindowIcon(self.window, surface);
+        c.SDL_SetWindowIcon(self.window_list.getCurrent().window, surface);
     }
 }
 
@@ -384,9 +479,9 @@ pub fn accessKitShouldInitialize(self: *SDLBackend) bool {
 pub fn accessKitInitInBegin(self: *SDLBackend) !void {
     std.debug.assert(self.ak_should_initialized);
     if (sdl3) {
-        try toErr(c.SDL_ShowWindow(self.window), "SDL_ShowWindow in accessKitInitInBegin");
+        try toErr(c.SDL_ShowWindow(self.window_list.getCurrent().window), "SDL_ShowWindow in accessKitInitInBegin");
     } else {
-        c.SDL_ShowWindow(self.window);
+        c.SDL_ShowWindow(self.window_list.getCurrent().window);
     }
     self.ak_should_initialized = false;
 }
@@ -453,7 +548,7 @@ pub fn cursorShow(_: *SDLBackend, value: ?bool) !bool {
 
 pub fn native(self: *SDLBackend, _: *dvui.Window) dvui.Window.Native {
     if (sdl3) {
-        const props = c.SDL_GetWindowProperties(self.window);
+        const props = c.SDL_GetWindowProperties(self.window_list.getCurrent().window);
         switch (builtin.os.tag) {
             .windows => return .{ .hwnd = c.SDL_GetPointerProperty(props, c.SDL_PROP_WINDOW_WIN32_HWND_POINTER, null) },
             .macos => return .{ .cocoa_window = c.SDL_GetPointerProperty(props, c.SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, null) },
@@ -484,7 +579,7 @@ pub fn refresh(_: *SDLBackend) void {
 }
 
 pub fn addAllEvents(self: *SDLBackend, win: *dvui.Window) !void {
-    //const flags = c.SDL_GetWindowFlags(self.window);
+    //const flags = c.SDL_GetWindowFlags(self.window_list.getCurrent().window);
     //if (flags & c.SDL_WINDOW_MOUSE_FOCUS == 0 and flags & c.SDL_WINDOW_INPUT_FOCUS == 0) {
     //std.debug.print("bailing\n", .{});
     //}
@@ -561,7 +656,7 @@ pub fn textInputRect(self: *SDLBackend, rect: ?dvui.Rect.Natural) !void {
             const cursor = 0;
 
             try toErr(c.SDL_SetTextInputArea(
-                self.window,
+                self.window_list.getCurrent().window,
                 &c.SDL_Rect{
                     .x = @intFromFloat(r.x),
                     .y = @intFromFloat(r.y),
@@ -577,13 +672,13 @@ pub fn textInputRect(self: *SDLBackend, rect: ?dvui.Rect.Natural) !void {
             .h = @intFromFloat(r.h),
         });
         if (sdl3) {
-            try toErr(c.SDL_StartTextInput(self.window), "SDL_StartTextInput in textInputRect");
+            try toErr(c.SDL_StartTextInput(self.window_list.getCurrent().window), "SDL_StartTextInput in textInputRect");
         } else {
             c.SDL_StartTextInput();
         }
     } else {
         if (sdl3) {
-            try toErr(c.SDL_StopTextInput(self.window), "SDL_StopTextInput in textInputRect");
+            try toErr(c.SDL_StopTextInput(self.window_list.getCurrent().window), "SDL_StopTextInput in textInputRect");
         } else {
             c.SDL_StopTextInput();
         }
@@ -602,8 +697,8 @@ pub fn deinit(self: *SDLBackend) void {
     }
 
     if (self.we_own_window) {
-        c.SDL_DestroyRenderer(self.renderer);
-        c.SDL_DestroyWindow(self.window);
+        c.SDL_DestroyRenderer(self.window_list.getCurrent().renderer);
+        c.SDL_DestroyWindow(self.window_list.getCurrent().window);
         c.SDL_Quit();
     }
     self.* = undefined;
@@ -611,9 +706,13 @@ pub fn deinit(self: *SDLBackend) void {
 
 pub fn renderPresent(self: *SDLBackend) !void {
     if (sdl3) {
-        try toErr(c.SDL_RenderPresent(self.renderer), "SDL_RenderPresent in renderPresent");
+        for (self.window_list.items) |window_maybe| {
+            if (window_maybe) |win| {
+                try toErr(c.SDL_RenderPresent(win.renderer), "SDL_RenderPresent in renderPresent for extra win");
+            }
+        }
     } else {
-        c.SDL_RenderPresent(self.renderer);
+        c.SDL_RenderPresent(self.window_list.getCurrent().renderer);
     }
 }
 
@@ -675,14 +774,14 @@ pub fn begin(self: *SDLBackend, arena: std.mem.Allocator) !void {
     self.arena = arena;
     const size = self.pixelSize();
     if (sdl3) {
-        try toErr(c.SDL_SetRenderClipRect(self.renderer, &c.SDL_Rect{
+        try toErr(c.SDL_SetRenderClipRect(self.window_list.getCurrent().renderer, &c.SDL_Rect{
             .x = 0,
             .y = 0,
             .w = @intFromFloat(size.w),
             .h = @intFromFloat(size.h),
         }), "SDL_SetRenderClipRect in begin");
     } else {
-        try toErr(c.SDL_RenderSetClipRect(self.renderer, &c.SDL_Rect{
+        try toErr(c.SDL_RenderSetClipRect(self.window_list.getCurrent().renderer, &c.SDL_Rect{
             .x = 0,
             .y = 0,
             .w = @intFromFloat(size.w),
@@ -698,12 +797,12 @@ pub fn pixelSize(self: *SDLBackend) dvui.Size.Physical {
     var h: i32 = undefined;
     if (sdl3) {
         toErr(
-            c.SDL_GetCurrentRenderOutputSize(self.renderer, &w, &h),
+            c.SDL_GetCurrentRenderOutputSize(self.window_list.getCurrent().renderer, &w, &h),
             "SDL_GetCurrentRenderOutputSize in pixelSize",
         ) catch return self.last_pixel_size;
     } else {
         toErr(
-            c.SDL_GetRendererOutputSize(self.renderer, &w, &h),
+            c.SDL_GetRendererOutputSize(self.window_list.getCurrent().renderer, &w, &h),
             "SDL_GetRendererOutputSize in pixelSize",
         ) catch return self.last_pixel_size;
     }
@@ -715,9 +814,9 @@ pub fn windowSize(self: *SDLBackend) dvui.Size.Natural {
     var w: i32 = undefined;
     var h: i32 = undefined;
     if (sdl3) {
-        toErr(c.SDL_GetWindowSize(self.window, &w, &h), "SDL_GetWindowSize in windowSize") catch return self.last_window_size;
+        toErr(c.SDL_GetWindowSize(self.window_list.getCurrent().window, &w, &h), "SDL_GetWindowSize in windowSize") catch return self.last_window_size;
     } else {
-        c.SDL_GetWindowSize(self.window, &w, &h);
+        c.SDL_GetWindowSize(self.window_list.getCurrent().window, &w, &h);
     }
     self.last_window_size = .{ .w = @as(f32, @floatFromInt(w)), .h = @as(f32, @floatFromInt(h)) };
     return self.last_window_size;
@@ -741,11 +840,11 @@ pub fn drawClippedTriangles(self: *SDLBackend, texture: ?dvui.Texture, vtx: []co
     if (maybe_clipr) |clipr| {
         if (sdl3) {
             try toErr(
-                c.SDL_GetRenderClipRect(self.renderer, &oldclip),
+                c.SDL_GetRenderClipRect(self.window_list.getCurrent().renderer, &oldclip),
                 "SDL_GetRenderClipRect in drawClippedTriangles",
             );
         } else {
-            c.SDL_RenderGetClipRect(self.renderer, &oldclip);
+            c.SDL_RenderGetClipRect(self.window_list.getCurrent().renderer, &oldclip);
         }
 
         const clip = c.SDL_Rect{
@@ -756,12 +855,12 @@ pub fn drawClippedTriangles(self: *SDLBackend, texture: ?dvui.Texture, vtx: []co
         };
         if (sdl3) {
             try toErr(
-                c.SDL_SetRenderClipRect(self.renderer, &clip),
+                c.SDL_SetRenderClipRect(self.window_list.getCurrent().renderer, &clip),
                 "SDL_SetRenderClipRect in drawClippedTriangles",
             );
         } else {
             try toErr(
-                c.SDL_RenderSetClipRect(self.renderer, &clip),
+                c.SDL_RenderSetClipRect(self.window_list.getCurrent().renderer, &clip),
                 "SDL_RenderSetClipRect in drawClippedTriangles",
             );
         }
@@ -785,7 +884,7 @@ pub fn drawClippedTriangles(self: *SDLBackend, texture: ?dvui.Texture, vtx: []co
         }
 
         try toErr(c.SDL_RenderGeometryRaw(
-            self.renderer,
+            self.window_list.getCurrent().renderer,
             tex,
             @as(*const f32, @ptrCast(&vtx[0].pos)),
             @sizeOf(dvui.Vertex),
@@ -800,7 +899,7 @@ pub fn drawClippedTriangles(self: *SDLBackend, texture: ?dvui.Texture, vtx: []co
         ), "SDL_RenderGeometryRaw, in drawClippedTriangles");
     } else {
         try toErr(c.SDL_RenderGeometryRaw(
-            self.renderer,
+            self.window_list.getCurrent().renderer,
             tex,
             @as(*const f32, @ptrCast(&vtx[0].pos)),
             @sizeOf(dvui.Vertex),
@@ -818,12 +917,12 @@ pub fn drawClippedTriangles(self: *SDLBackend, texture: ?dvui.Texture, vtx: []co
     if (maybe_clipr) |_| {
         if (sdl3) {
             try toErr(
-                c.SDL_SetRenderClipRect(self.renderer, &oldclip),
+                c.SDL_SetRenderClipRect(self.window_list.getCurrent().renderer, &oldclip),
                 "SDL_SetRenderClipRect in drawClippedTriangles reset clip",
             );
         } else {
             try toErr(
-                c.SDL_RenderSetClipRect(self.renderer, &oldclip),
+                c.SDL_RenderSetClipRect(self.window_list.getCurrent().renderer, &oldclip),
                 "SDL_RenderSetClipRect in drawClippedTriangles reset clip",
             );
         }
@@ -891,7 +990,7 @@ pub fn textureCreate(self: *SDLBackend, pixels: [*]const u8, width: u32, height:
 
     defer if (sdl3) c.SDL_DestroySurface(surface) else c.SDL_FreeSurface(surface);
 
-    const texture = c.SDL_CreateTextureFromSurface(self.renderer, surface) orelse return logErr("SDL_CreateTextureFromSurface in textureCreate");
+    const texture = c.SDL_CreateTextureFromSurface(self.window_list.getCurrent().renderer, surface) orelse return logErr("SDL_CreateTextureFromSurface in textureCreate");
     errdefer c.SDL_DestroyTexture(texture);
 
     if (sdl3) try toErr(switch (interpolation) {
@@ -938,7 +1037,7 @@ pub fn textureCreateTarget(self: *SDLBackend, width: u32, height: u32, interpola
     };
 
     const texture = c.SDL_CreateTexture(
-        self.renderer,
+        self.window_list.getCurrent().renderer,
         sdl_format,
         c.SDL_TEXTUREACCESS_TARGET,
         @intCast(width),
@@ -965,30 +1064,30 @@ pub fn textureCreateTarget(self: *SDLBackend, width: u32, height: u32, interpola
 
 pub fn textureClearTarget(self: *SDLBackend, texture: dvui.TextureTarget) void {
     // null is the default render target
-    const old = c.SDL_GetRenderTarget(self.renderer);
-    defer _ = c.SDL_SetRenderTarget(self.renderer, old);
+    const old = c.SDL_GetRenderTarget(self.window_list.getCurrent().renderer);
+    defer _ = c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, old);
 
     var oldBlend: c_uint = undefined;
-    _ = c.SDL_GetRenderDrawBlendMode(self.renderer, &oldBlend);
-    defer _ = c.SDL_SetRenderDrawBlendMode(self.renderer, oldBlend);
+    _ = c.SDL_GetRenderDrawBlendMode(self.window_list.getCurrent().renderer, &oldBlend);
+    defer _ = c.SDL_SetRenderDrawBlendMode(self.window_list.getCurrent().renderer, oldBlend);
 
     toErr(
-        c.SDL_SetRenderTarget(self.renderer, @ptrCast(@alignCast(texture.ptr))),
+        c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, @ptrCast(@alignCast(texture.ptr))),
         "SDL_SetRenderTarget in textureClearTarget",
     ) catch return;
 
     toErr(
-        c.SDL_SetRenderDrawBlendMode(self.renderer, c.SDL_BLENDMODE_NONE),
+        c.SDL_SetRenderDrawBlendMode(self.window_list.getCurrent().renderer, c.SDL_BLENDMODE_NONE),
         "SDL_SetRenderDrawBlendMode in textureClearTarget",
     ) catch return;
 
     toErr(
-        c.SDL_SetRenderDrawColor(self.renderer, 0, 0, 0, 0),
+        c.SDL_SetRenderDrawColor(self.window_list.getCurrent().renderer, 0, 0, 0, 0),
         "SDL_SetRenderDrawColor in textureClearTarget",
     ) catch return;
 
     toErr(
-        c.SDL_RenderFillRect(self.renderer, null),
+        c.SDL_RenderFillRect(self.window_list.getCurrent().renderer, null),
         "SDL_RenderFillRect in textureClearTarget",
     ) catch return;
 }
@@ -996,14 +1095,14 @@ pub fn textureClearTarget(self: *SDLBackend, texture: dvui.TextureTarget) void {
 pub fn textureReadTarget(self: *SDLBackend, texture: dvui.TextureTarget, pixels_out: [*]u8) !void {
     if (sdl3) {
         // null is the default target
-        const orig_target = c.SDL_GetRenderTarget(self.renderer);
-        try toErr(c.SDL_SetRenderTarget(self.renderer, @ptrCast(@alignCast(texture.ptr))), "SDL_SetRenderTarget in textureReadTarget");
+        const orig_target = c.SDL_GetRenderTarget(self.window_list.getCurrent().renderer);
+        try toErr(c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, @ptrCast(@alignCast(texture.ptr))), "SDL_SetRenderTarget in textureReadTarget");
         defer toErr(
-            c.SDL_SetRenderTarget(self.renderer, orig_target),
+            c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, orig_target),
             "SDL_SetRenderTarget in textureReadTarget",
         ) catch log.err("Could not reset render target", .{});
 
-        var surface: *c.SDL_Surface = c.SDL_RenderReadPixels(self.renderer, null) orelse
+        var surface: *c.SDL_Surface = c.SDL_RenderReadPixels(self.window_list.getCurrent().renderer, null) orelse
             logErr("SDL_RenderReadPixels in textureReadTarget") catch
             return dvui.Backend.TextureError.TextureRead;
         defer c.SDL_DestroySurface(surface);
@@ -1031,7 +1130,7 @@ pub fn textureReadTarget(self: *SDLBackend, texture: dvui.TextureTarget, pixels_
     // crashes if we ask it to do the conversion for us.
     var swap_rb = true;
     var info: c.SDL_RendererInfo = undefined;
-    try toErr(c.SDL_GetRendererInfo(self.renderer, &info), "SDL_GetRendererInfo in textureReadTarget");
+    try toErr(c.SDL_GetRendererInfo(self.window_list.getCurrent().renderer, &info), "SDL_GetRendererInfo in textureReadTarget");
     //std.debug.print("renderer name {s} formats:\n", .{info.name});
     for (0..info.num_texture_formats) |i| {
         //std.debug.print("  {s}\n", .{c.SDL_GetPixelFormatName(info.texture_formats[i])});
@@ -1040,16 +1139,16 @@ pub fn textureReadTarget(self: *SDLBackend, texture: dvui.TextureTarget, pixels_
         }
     }
 
-    const orig_target = c.SDL_GetRenderTarget(self.renderer);
-    try toErr(c.SDL_SetRenderTarget(self.renderer, @ptrCast(texture.ptr)), "SDL_SetRenderTarget in textureReadTarget");
+    const orig_target = c.SDL_GetRenderTarget(self.window_list.getCurrent().renderer);
+    try toErr(c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, @ptrCast(texture.ptr)), "SDL_SetRenderTarget in textureReadTarget");
     defer toErr(
-        c.SDL_SetRenderTarget(self.renderer, orig_target),
+        c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, orig_target),
         "SDL_SetRenderTarget in textureReadTarget",
     ) catch log.err("Could not reset render target", .{});
 
     toErr(
         c.SDL_RenderReadPixels(
-            self.renderer,
+            self.window_list.getCurrent().renderer,
             null,
             if (swap_rb) c.SDL_PIXELFORMAT_ARGB8888 else c.SDL_PIXELFORMAT_ABGR8888,
             pixels_out,
@@ -1089,18 +1188,18 @@ pub fn textureFromTargetTemp(_: *SDLBackend, target: dvui.TextureTarget) !dvui.T
 
 pub fn renderTarget(self: *SDLBackend, texture: ?dvui.TextureTarget) !void {
     const ptr: ?*anyopaque = if (texture) |tex| tex.ptr else null;
-    try toErr(c.SDL_SetRenderTarget(self.renderer, @ptrCast(@alignCast(ptr))), "SDL_SetRenderTarget in renderTarget");
+    try toErr(c.SDL_SetRenderTarget(self.window_list.getCurrent().renderer, @ptrCast(@alignCast(ptr))), "SDL_SetRenderTarget in renderTarget");
 
     // by default sdl sets an empty clip, let's ensure it is the full texture/screen
     if (sdl3) {
         // sdl3 crashes if w/h are too big, this seems to work
         try toErr(
-            c.SDL_SetRenderClipRect(self.renderer, &c.SDL_Rect{ .x = 0, .y = 0, .w = 65536, .h = 65536 }),
+            c.SDL_SetRenderClipRect(self.window_list.getCurrent().renderer, &c.SDL_Rect{ .x = 0, .y = 0, .w = 65536, .h = 65536 }),
             "SDL_SetRenderClipRect in renderTarget",
         );
     } else {
         try toErr(
-            c.SDL_RenderSetClipRect(self.renderer, &c.SDL_Rect{ .x = 0, .y = 0, .w = std.math.maxInt(c_int), .h = std.math.maxInt(c_int) }),
+            c.SDL_RenderSetClipRect(self.window_list.getCurrent().renderer, &c.SDL_Rect{ .x = 0, .y = 0, .w = std.math.maxInt(c_int), .h = std.math.maxInt(c_int) }),
             "SDL_RenderSetClipRect in renderTarget",
         );
     }

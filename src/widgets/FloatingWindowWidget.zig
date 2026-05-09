@@ -227,11 +227,11 @@ pub fn init(self: *FloatingWindowWidget, src: std.builtin.SourceLocation, init_o
     self.data().register();
 
     if (dvui.firstFrame(self.data().id)) {
-        if (self.init_options.dedicated_os_win) {
-            // FIXME : Is this the right ID to pass ?
-            dvui.currentWindow().backend.impl.createExtraWindow(self.wd.id) catch unreachable;
-            dvui.dataSet(null, self.wd.id, "active_child_os_window", self.wd.id);
-        }
+        // if (self.init_options.dedicated_os_win) {
+        //     // FIXME : Is this the right ID to pass ?
+        //     // dvui.currentWindow().backend.windowSwitchTo(self.wd.id);
+        //     dvui.dataSet(null, self.wd.id, "active_child_os_window", self.wd.id);
+        // }
 
         dvui.focusSubwindow(self.data().id, null);
 
@@ -249,15 +249,11 @@ pub fn init(self: *FloatingWindowWidget, src: std.builtin.SourceLocation, init_o
         // jump when we autopos/autosize
         self.data().rect.w = 0;
         self.data().rect.h = 0;
-    } else {
-        // FIXME : Adding the else above feel weird, not sure why
-        // Should this go in FloatingWindowWidget.deinit() instead ?
-        if (init_opts.dedicated_os_win) {
-            dvui.dataSetDeinitFunction(null, self.wd.id, "active_child_os_window", &OsWinDestroy);
-        }
     }
     if (self.init_options.dedicated_os_win) {
-        // TODO : change where the backend draws to
+        dvui.currentWindow().backend.windowSwitchTo(self.wd.id);
+        dvui.dataSet(null, self.wd.id, "active_child_os_window", true);
+        dvui.dataSetDeinitFunction(null, self.wd.id, "active_child_os_window", &OsWinDestroy);
     }
 
     if (dvui.captured(self.data().id)) {
@@ -621,8 +617,14 @@ pub fn deinit(self: *FloatingWindowWidget) void {
 
     // outside normal layout, don't call minSizeForChild or self.data().minSizeReportToParent();
 
+    if (self.init_options.dedicated_os_win) {
+        // std.debug.panic("here I neet to switch back to ? {f} ?\n", .{self.data().parent.data().id});
+        dvui.currentWindow().backend.windowSwitchTo(self.data().parent.data().id);
+    }
     dvui.parentReset(self.data().id, self.data().parent);
     dvui.currentWindow().last_focused_id_this_frame = self.prev_last_focus;
+
+    // dvui.currentWindow().backend.windowSwitchTo(self.data().parent.data().id);
 
     // standard subwindow stuff
     {
@@ -637,7 +639,8 @@ pub fn deinit(self: *FloatingWindowWidget) void {
 // But I think the general idea is actionnable.
 fn OsWinDestroy(ptr: *anyopaque) void {
     const id: dvui.Id = @as(*dvui.Id, @ptrCast(@alignCast(ptr))).*;
-    dvui.currentWindow().backend.impl.destroyExtraWindow(id) catch unreachable;
+    std.debug.print("about to destroy window {f}\n", .{id});
+    dvui.currentWindow().backend.windowDestroy(id);
 }
 
 test {

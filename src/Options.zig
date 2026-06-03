@@ -1,3 +1,10 @@
+//! General Widget options.
+//!
+//! This is used by `dvui.WidgetData` and therefore to each struct
+//! that conform to the widget interface accept and store an instance of this.
+//!
+//! Most widget also accept a second set of option specific to themselves, usually called `InitOptions`
+
 const std = @import("std");
 const dvui = @import("dvui.zig");
 

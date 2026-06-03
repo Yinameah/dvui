@@ -586,6 +586,8 @@ pub fn captureEvents(self: *Self, event_num: u16, widgetId: ?Id) void {
 
 /// Add a keyboard event (key up/down/repeat) to the dvui event list.
 ///
+/// Return true if the event was for a subwindow.
+///
 /// This can be called outside begin/end.  You should add all the events
 /// for a frame either before begin() or just after begin() and before
 /// calling normal dvui widgets.  end() clears the event list.
@@ -625,6 +627,8 @@ pub const AddEventTextOptions = struct {
 /// key up/down because the text could come from an IME (Input Method
 /// Editor).
 ///
+/// Return true if the event was for a subwindow.
+///
 /// This can be called outside begin/end.  You should add all the events
 /// for a frame either before begin() or just after begin() and before
 /// calling normal dvui widgets.  end() clears the event list.
@@ -657,6 +661,8 @@ pub const AddEventTextSelectOptions = struct {
 
 /// Add an event that represents text being selected.
 ///
+/// Return true if the event was for a subwindow.
+///
 /// This can be called outside begin/end.  You should add all the events
 /// for a frame either before begin() or just after begin() and before
 /// calling normal dvui widgets.  end() clears the event list.
@@ -688,6 +694,8 @@ pub const AddEventFocusOptions = struct {
 };
 
 /// Focus the widget under pt, without moving mouse_pt.
+///
+/// Return true if the event was for a subwindow.
 pub fn addEventFocus(self: *Self, opts: AddEventFocusOptions) std.mem.Allocator.Error!bool {
     self.positionMouseEventRemove();
 
@@ -731,6 +739,8 @@ pub const AddEventMouseMotionOptions = struct {
 /// Add a mouse motion event that the mouse is now at physical pixel pt.  This
 /// is only for a mouse - for touch motion use addEventTouchMotion().
 ///
+/// Return true if the event was for a subwindow.
+///
 /// This can be called outside begin/end.  You should add all the events
 /// for a frame either before begin() or just after begin() and before
 /// calling normal dvui widgets.  end() clears the event list.
@@ -770,6 +780,8 @@ pub fn addEventMouseMotion(self: *Self, opts: AddEventMouseMotionOptions) std.me
 
 /// Add a mouse button event (like left button down/up).
 ///
+/// Return true if the event was for a subwindow.
+///
 /// This can be called outside begin/end.  You should add all the events
 /// for a frame either before begin() or just after begin() and before
 /// calling normal dvui widgets.  end() clears the event list.
@@ -786,6 +798,8 @@ pub const AddEventPointerOptions = struct {
 
 /// Add a touch up/down event.  This is similar to addEventMouseButton but
 /// also includes a normalized (0-1) touch point.
+///
+/// Return true if the event was for a subwindow.
 ///
 /// This can be called outside begin/end.  You should add all the events
 /// for a frame either before begin() or just after begin() and before

@@ -18,6 +18,9 @@ else
 pub const ChildOsWindow = struct {
     backend: *dvui.backend,
     dvui_win: *dvui.Window,
+
+    /// Use to store time frame info after `dvui.Window.end()`.
+    ///  See `dvui.Window.waitTime()`
     end_micros: ?u32 = null,
 
     // debug : allows to detect duplicate window
@@ -68,7 +71,7 @@ pub fn osWindowImpl(src: std.builtin.SourceLocation, child_win_opts: OsWindowWid
     const win_maybe = cw.child_os_wins.getOrPut(cw.gpa, hashval) catch @panic("OOM");
     const os_win: *ChildOsWindow = if (win_maybe.found_existing)
         win_maybe.value_ptr
-    else blk: {
+    else os_win: {
         const new_backend = cw.gpa.create(dvui.backend) catch @panic("OOM");
         new_backend.* = cw.backend.impl.initWindowSecondary(child_win_opts) catch @panic("Failed to initialize new backend");
 
@@ -88,7 +91,7 @@ pub fn osWindowImpl(src: std.builtin.SourceLocation, child_win_opts: OsWindowWid
             @panic("Failed to initialize new dvui.Window");
         new_dvui_win.is_primary = false;
         win_maybe.value_ptr.* = .{ .backend = new_backend, .dvui_win = new_dvui_win };
-        break :blk win_maybe.value_ptr;
+        break :os_win win_maybe.value_ptr;
     };
     std.debug.assert(os_win.dvui_win.data().id == hashval);
     os_win.dvui_win.begin(cw.frame_time_ns) catch |err| {

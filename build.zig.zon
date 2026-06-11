@@ -1,8 +1,8 @@
 .{
     .name = .dvui,
     .fingerprint = 0xa35affe599490101,
-    .version = "0.5.0-dev",
-    .minimum_zig_version = "0.16.0",
+    .version = "0.6.0-dev",
+    .minimum_zig_version = "0.17.0",
     .paths = .{
         "LICENSE",
         "README.md",
@@ -29,8 +29,12 @@
         // target-OS switch has none; see linkSdl3 in build.zig and examples/ios-example/README.md).
         // Additive only — every other target builds identically to the plain upstream fork.
         .sdl3 = .{
-            .url = "git+https://github.com/nat3Github/lib-sdl3-dev-fork#3aec7d397ca8997725dcb624f7470a60c9b33734",
-            .hash = "sdl-0.4.2+3.4.4-SDL--gqNpQF1CjofImvjmIBRf7mkJns3eCFIsRbucO1m",
+            // .url = "git+https://github.com/nat3Github/lib-sdl3-dev-fork#3aec7d397ca8997725dcb624f7470a60c9b33734",
+            // .hash = "sdl-0.4.2+3.4.4-SDL--gqNpQF1CjofImvjmIBRf7mkJns3eCFIsRbucO1m",
+
+            // Temporary fork for 0.17 support
+            .url = "git+https://github.com/Yinameah/castholm_SDL3#2b45a2ba7ba75ffbca1bff8f09b8a657b7929878",
+            .hash = "sdl-0.5.1+3.4.10-SDL--tbKpgG0RfJgZ40sd3PufBqNJo1qKOCU6Tdea0xo",
             .lazy = true,
         },
         .freetype = .{
@@ -77,8 +81,13 @@
         },
         // for rendering tvg icons
         .svg2tvg = .{
-            .url = "git+https://github.com/nat3Github/zig-lib-svg2tvg#2c72af8ff00621b094ca70f03440405f59511fbb",
-            .hash = "svg2tvg-0.0.0-HpMZuaP8BQALdwSolfst0dPGUUn2ptqgfSxVs8RoQJ6K",
+            // .url = "git+https://github.com/nat3Github/zig-lib-svg2tvg#$COMIT_HASH",
+
+            // This contains a "dirty" fix that just comments out some stuff, but doesn't seems to
+            // impact dvui, at least not that I could notice.
+            // See : https://github.com/nat3Github/zig-lib-svg2tvg/issues/9
+            .url = "git+https://github.com/Yinameah/zig-lib-svg2tvg#b1d75015aad936dd97a9e9ef6b83a6010d465905",
+            .hash = "svg2tvg-0.0.0-HpMZuYu0BwB0DH1kb0y7sN2RUo5fDOzR20g37OBddhAw",
             .lazy = true,
         },
         .accesskit = .{
@@ -99,8 +108,10 @@
             .lazy = true,
         },
         .tree_sitter = .{
-            .url = "git+https://github.com/david-vanderson/tree-sitter#c8cad6e16017a6bb6eb8a61fb1c1e7f23c552b4f",
-            .hash = "tree_sitter-0.27.0-Tw2sR72eCwCRZKEZND6TJIgdWq9ZnPV9g_syCHLyNEGe",
+            // .url = "git+https://github.com/tree-sitter/tree-sitter#$COMIT_HASH",
+            // Trivial change for 0.17.0, will upstream itself at some point.
+            .url = "git+https://github.com/Yinameah/tree-sitter#604b3ee63b21165f609591b752d93d57b5ea2410",
+            .hash = "tree_sitter-0.27.0-Tw2sRzf_CwBjFuJTx3DZYDQuRKF91OM3WaWHkoY-RmKB",
             .lazy = true,
         },
         .tree_sitter_json = .{
@@ -109,8 +120,12 @@
             .lazy = true,
         },
         .tree_sitter_zig = .{
-            .url = "git+https://github.com/david-vanderson/tree-sitter-zig.git#f247e4f0017a79c86646089078b68591620d5709",
-            .hash = "tree_sitter_zig-1.1.2-YNf2GAt8XACdbaWHHiNMMfw--bLN1Av1rMsnq6bokMdL",
+            // .url = "git+https://github.com/david-vanderson/tree-sitter-zig.git#f247e4f0017a79c86646089078b68591620d5709",
+            // .hash = "tree_sitter_zig-1.1.2-YNf2GAt8XACdbaWHHiNMMfw--bLN1Av1rMsnq6bokMdL",
+            // Trivial change compared to david-vanderson's fork, but upstream is a bit weird because there is a hack for
+            // lazy fetching tree-sitter dependencies for test only, but I could not manage to run said tests, so idk.
+            .url = "git+https://github.com/Yinameah/tree-sitter-zig.git#5cc9ad06e485e26e73919b0f5e5e1e12cadf7ef4",
+            .hash = "tree_sitter_zig-1.1.2-YNf2GP57XACuJgmBSqpexuzBVMbGOw0pSX7ueNEqY51-",
             .lazy = true,
         },
         .zgl = .{

@@ -129,8 +129,9 @@
             // .hash = "tree_sitter_zig-1.1.2-YNf2GAt8XACdbaWHHiNMMfw--bLN1Av1rMsnq6bokMdL",
             // Trivial change compared to david-vanderson's fork, but upstream is a bit weird because there is a hack for
             // lazy fetching tree-sitter dependencies for test only, but I could not manage to run said tests, so idk.
-            .url = "git+https://github.com/Yinameah/tree-sitter-zig.git#5cc9ad06e485e26e73919b0f5e5e1e12cadf7ef4",
-            .hash = "tree_sitter_zig-1.1.2-YNf2GP57XACuJgmBSqpexuzBVMbGOw0pSX7ueNEqY51-",
+            .url = "git+https://github.com/Yinameah/tree-sitter-zig#39643900518f291a72ff8e26a3b505b5ce3c3a66",
+
+            .hash = "tree_sitter_zig-1.1.2-YNf2GP57XABT7jXfXt3CkhXpwo-NnAVVhiMqljClr_ds",
             .lazy = true,
         },
         .zgl = .{

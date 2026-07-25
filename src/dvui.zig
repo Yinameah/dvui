@@ -389,7 +389,7 @@ pub const Id = enum(u64) {
         hash.update(std.mem.asBytes(&src.line));
         hash.update(std.mem.asBytes(&src.column));
         hash.update(std.mem.asBytes(&id_extra));
-        return @enumFromInt(hash.final());
+        return @fromBackingInt(@intCast(hash.final()));
     }
 
     /// Make a new id by combining id with a name, commonly a string key like `"__value"`.
@@ -398,11 +398,11 @@ pub const Id = enum(u64) {
         var h = fnv.init();
         h.value = id.asU64();
         h.update(name);
-        return @enumFromInt(h.final());
+        return @fromBackingInt(@intCast(h.final()));
     }
 
     pub fn asU64(self: Id) u64 {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     /// ALWAYS prefer using `asU64` unless a `usize` is required as it could
@@ -411,7 +411,7 @@ pub const Id = enum(u64) {
     /// Using an `Id` as `Options.id_extra` would be a valid use of this function
     pub fn asUsize(self: Id) usize {
         // usize might be u32 (like on wasm32)
-        return @truncate(@intFromEnum(self));
+        return @truncate(@backingInt(self));
     }
 
     pub fn format(self: *const Id, writer: *std.Io.Writer) !void {
@@ -493,7 +493,7 @@ pub const FormatErrorTrace = struct {
 
 pub fn logError(src: std.builtin.SourceLocation, err: anyerror, comptime fmt: []const u8, args: anytype) void {
     @branchHint(.cold);
-    const stack_trace_frame_count = @import("build_options").log_stack_trace orelse if (builtin.mode == .Debug) 12 else 0;
+    const stack_trace_frame_count = @import("build_options").log_stack_trace orelse if (builtin.mode == .debug) 12 else 0;
     const stack_trace_enabled = if (builtin.cpu.arch.isWasm()) false else stack_trace_frame_count > 0;
     const err_trace_enabled = if (@import("build_options").log_error_trace) |enabled| enabled else stack_trace_enabled;
 
@@ -1243,11 +1243,11 @@ pub const data = struct {
         /// * dvui itself prefixes string with double underscore (__)
         /// * 3rd party librares should prefix with the name of the library (mylib_) or dns name (com.example.mylib.)
         pub fn widget(id: dvui.Id, string: []const u8) Key {
-            return @enumFromInt(id.update(string).asU64());
+            return @fromBackingInt(@intCast(id.update(string).asU64()));
         }
 
         pub fn U64(int: u64) Key {
-            return @enumFromInt(int);
+            return @fromBackingInt(@intCast(int));
         }
     };
 
@@ -1258,7 +1258,7 @@ pub const data = struct {
         _,
 
         pub fn fromId(id: dvui.Id) Token {
-            return @enumFromInt(@intFromEnum(id));
+            return @fromBackingInt(@intCast(@backingInt(id)));
         }
     };
 
@@ -1655,7 +1655,7 @@ pub const EventMatchOptions = struct {
 
     /// (Only in Debug) If true, `eventMatch` will log a reason when returning
     /// false.  Useful to understand why you aren't matching some event.
-    debug: if (builtin.mode == .Debug) bool else void = if (builtin.mode == .Debug) false else undefined,
+    debug: if (builtin.mode == .debug) bool else void = if (builtin.mode == .debug) false else undefined,
 };
 
 /// Should e be processed by a widget with the given id and screen rect?
@@ -1671,7 +1671,7 @@ pub const EventMatchOptions = struct {
 /// Only valid between `Window.begin`and `Window.end`.
 pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
     if (e.handled) {
-        if (builtin.mode == .Debug and opts.debug) {
+        if (builtin.mode == .debug and opts.debug) {
             log.debug("eventMatch {f} already handled", .{e});
         }
         return false;
@@ -1682,7 +1682,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
         .window => {
             if (e.target_widgetId) |wid| {
                 if (wid != opts.id) {
-                    if (builtin.mode == .Debug and opts.debug) {
+                    if (builtin.mode == .debug and opts.debug) {
                         log.debug("eventMatch {f} not to this window", .{e});
                     }
                     return false;
@@ -1693,7 +1693,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
             // focusable event
             if (e.target_widgetId != opts.id and (opts.focus_id == null or opts.focus_id.? != e.target_widgetId)) {
                 // not the focused widget
-                if (builtin.mode == .Debug and opts.debug) {
+                if (builtin.mode == .debug and opts.debug) {
                     log.debug("eventMatch {f} focus not to this widget", .{e});
                 }
                 return false;
@@ -1715,7 +1715,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
             const cw = currentWindow();
             if (cw.dragging.state == .dragging and cw.dragging.name != null and (opts.drag_name == null or !std.mem.eql(u8, cw.dragging.name.?, opts.drag_name.?))) {
                 // a cross-widget drag is happening that we don't know about
-                if (builtin.mode == .Debug and opts.debug) {
+                if (builtin.mode == .debug and opts.debug) {
                     log.debug("eventMatch {f} drag_name ({?s}) given but current drag is ({?s})", .{ e, opts.drag_name, cw.dragging.name });
                 }
                 return false;
@@ -1723,7 +1723,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
 
             if (me.floating_win != subwindowCurrentId()) {
                 // floating window is above us
-                if (builtin.mode == .Debug and opts.debug) {
+                if (builtin.mode == .debug and opts.debug) {
                     log.debug("eventMatch {f} floating window above", .{e});
                 }
                 return false;
@@ -1731,7 +1731,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
 
             if (!opts.r.contains(me.p)) {
                 // mouse not in our rect
-                if (builtin.mode == .Debug and opts.debug) {
+                if (builtin.mode == .debug and opts.debug) {
                     log.debug("eventMatch {f} not in rect", .{e});
                 }
                 return false;
@@ -1742,7 +1742,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
 
                 // prevents widgets that are scrolled off a
                 // scroll area from processing events
-                if (builtin.mode == .Debug and opts.debug) {
+                if (builtin.mode == .debug and opts.debug) {
                     log.debug("eventMatch {f} not in clip", .{e});
                 }
                 return false;
@@ -1760,7 +1760,7 @@ pub fn eventMatch(e: *Event, opts: EventMatchOptions) bool {
                     }
                 }
 
-                if (builtin.mode == .Debug and opts.debug) {
+                if (builtin.mode == .debug and opts.debug) {
                     log.debug("eventMatch {f} captured by other widget", .{e});
                 }
                 return false;
@@ -3117,9 +3117,9 @@ pub fn dropdownEnum(src: std.builtin.SourceLocation, T: type, choice: DropdownCh
 
     // Adjust selected index by 1 if the placeholder is showing
     const selected_index: ?usize = switch (choice) {
-        .choice => |ch| @intFromEnum(ch.*),
+        .choice => |ch| @backingInt(ch.*),
         .choice_nullable => |ch| if (ch.*) |_|
-            if (init_opts.null_selectable) @as(usize, @intFromEnum(ch.*.?)) + 1 else @intFromEnum(ch.*.?)
+            if (init_opts.null_selectable) @as(usize, @backingInt(ch.*.?)) + 1 else @backingInt(ch.*.?)
         else
             null,
     };
@@ -3128,7 +3128,7 @@ pub fn dropdownEnum(src: std.builtin.SourceLocation, T: type, choice: DropdownCh
     dd.init(
         src,
         switch (choice) {
-            .choice => |ch| .{ .selected_index = @intFromEnum(ch.*), .label = @tagName(ch.*) },
+            .choice => |ch| .{ .selected_index = @backingInt(ch.*), .label = @tagName(ch.*) },
             .choice_nullable => |ch| if (ch.* == null)
                 .{ .placeholder = init_opts.placeholder orelse dropdown_placeholder_default }
             else

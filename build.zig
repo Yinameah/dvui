@@ -163,13 +163,15 @@ pub fn build(b: *std.Build) !void {
 
     var back_to_build = b.option(Backend, "backend", "Backend to build");
     const render_backend = b.option(RenderBackend, "renderer", "Render backend to build (default: implied by backend)") orelse .default;
-    if (render_backend == .vulkan) {
-        if (back_to_build) |backend| {
-            if (backend != .wio and backend != .custom) @panic("the Vulkan render backend currently supports -Dbackend=wio or -Dbackend=custom");
-        } else {
-            back_to_build = .wio;
-        }
-    }
+    // FIXME 0.17
+    // just put this back, but can't now because I had to remove .wio from building backends
+    // if (render_backend == .vulkan) {
+    //     if (back_to_build) |backend| {
+    //         if (backend != .wio and backend != .custom) @panic("the Vulkan render backend currently supports -Dbackend=wio or -Dbackend=custom");
+    //     } else {
+    //         back_to_build = .wio;
+    //     }
+    // }
 
     const test_step = b.step("test", "Test the dvui codebase");
     const check_step = b.step("check", "Check that the entire dvui codebase has no syntax errors");
@@ -1122,96 +1124,99 @@ pub fn buildBackend(
                 addWebExample("web-app", b.path("examples/app.zig"), example_opts, wasm_dvui_opts, web_serve_exe);
             }
         },
-        .wio => {
-            dvui_opts.setDefaults(.{ .libc = true, .freetype = true, .tiny_file_dialogs = true, .stb_image = true, .tree_sitter = true });
-
-            if (dvui_opts.render_backend == .default) {
-                dvui_opts.render_backend = .opengl;
-            }
-
-            const wio_backend_mod = b.addModule("wio", .{
-                .root_source_file = b.path("src/backends/wio.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
-            dvui_opts.addChecks(wio_backend_mod, "wio-backend");
-            dvui_opts.addTests(wio_backend_mod, "wio-backend");
-
-            if (b.lazyDependency("wio", .{
-                .target = target,
-                .optimize = optimize,
-                .enable_opengl = (dvui_opts.render_backend == .opengl),
-                .enable_vulkan = (dvui_opts.render_backend == .vulkan),
-                .enable_joystick = dvui_opts.wio_joystick,
-                .enable_audio = dvui_opts.wio_audio,
-                .unix_backends = dvui_opts.wio_unix_backends,
-            })) |wio| {
-                wio_backend_mod.addImport("wio", wio.module("wio"));
-                dvui_opts.wio_module = wio.module("wio");
-            }
-
-            const dvui_wio = addDvuiModule("dvui_wio", dvui_opts);
-            dvui_opts.addChecks(dvui_wio, "dvui_wio");
-            if (test_dvui_and_app) {
-                dvui_opts.addTests(dvui_wio, "dvui_wio");
-            }
-
-            linkBackend(dvui_wio, wio_backend_mod);
-
-            const example_opts: ExampleOptions = .{
-                .dvui_mod = dvui_wio,
-                .backend_name = "wio-backend",
-                .backend_mod = wio_backend_mod,
-            };
-            _ = addExample("wio-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
-            if (dvui_opts.render_backend == .vulkan) {
-                _ = addExample("wio-standalone", b.path("examples/wio-vulkan-standalone.zig"), true, example_opts, dvui_opts);
-                _ = addExample("wio-ontop", b.path("examples/wio-vulkan-ontop.zig"), true, example_opts, dvui_opts);
-            } else {
-                _ = addExample("wio-standalone", b.path("examples/wio-standalone.zig"), true, example_opts, dvui_opts);
-                _ = addExample("wio-ontop", b.path("examples/wio-ontop.zig"), true, example_opts, dvui_opts);
-            }
-        },
-        .pugl => {
-            dvui_opts.setDefaults(.{ .libc = true, .freetype = true, .tiny_file_dialogs = true, .stb_image = true, .tree_sitter = true });
-
-            if (dvui_opts.render_backend == .default) {
-                dvui_opts.render_backend = .opengl;
-            }
-
-            const pugl_backend_mod = b.addModule("pugl", .{
-                .root_source_file = b.path("src/backends/pugl.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
-            dvui_opts.addChecks(pugl_backend_mod, "pugl-backend");
-            dvui_opts.addTests(pugl_backend_mod, "pugl-backend");
-
-            if (b.lazyDependency("pugl", .{
-                .target = target,
-                .optimize = optimize,
-                .opengl = true,
-            })) |pugl| {
-                pugl_backend_mod.addImport("pugl", pugl.module("pugl"));
-                pugl_backend_mod.addImport("pugl-opengl", pugl.module("backend_opengl"));
-            }
-
-            const dvui_pugl = addDvuiModule("dvui_pugl", dvui_opts);
-            dvui_opts.addChecks(dvui_pugl, "dvui_pugl");
-            if (test_dvui_and_app)
-                dvui_opts.addTests(dvui_pugl, "dvui_pugl");
-
-            linkBackend(dvui_pugl, pugl_backend_mod);
-
-            const example_opts: ExampleOptions = .{
-                .dvui_mod = dvui_pugl,
-                .backend_name = "pugl-backend",
-                .backend_mod = pugl_backend_mod,
-            };
-
-            _ = addExample("pugl-standalone", b.path("examples/pugl-standalone.zig"), true, example_opts, dvui_opts);
-            _ = addExample("pugl-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
-        },
+        // FIXME 0.17 : dependency not ready
+        // (depends on opengl)
+        // .wio => {
+        //     dvui_opts.setDefaults(.{ .libc = true, .freetype = true, .tiny_file_dialogs = true, .stb_image = true, .tree_sitter = true });
+        //
+        //     if (dvui_opts.render_backend == .default) {
+        //         dvui_opts.render_backend = .opengl;
+        //     }
+        //
+        //     const wio_backend_mod = b.addModule("wio", .{
+        //         .root_source_file = b.path("src/backends/wio.zig"),
+        //         .target = target,
+        //         .optimize = optimize,
+        //     });
+        //     dvui_opts.addChecks(wio_backend_mod, "wio-backend");
+        //     dvui_opts.addTests(wio_backend_mod, "wio-backend");
+        //
+        //     if (b.lazyDependency("wio", .{
+        //         .target = target,
+        //         .optimize = optimize,
+        //         .enable_opengl = (dvui_opts.render_backend == .opengl),
+        //         .enable_vulkan = (dvui_opts.render_backend == .vulkan),
+        //         .enable_joystick = dvui_opts.wio_joystick,
+        //         .enable_audio = dvui_opts.wio_audio,
+        //         .unix_backends = dvui_opts.wio_unix_backends,
+        //     })) |wio| {
+        //         wio_backend_mod.addImport("wio", wio.module("wio"));
+        //         dvui_opts.wio_module = wio.module("wio");
+        //     }
+        //
+        //     const dvui_wio = addDvuiModule("dvui_wio", dvui_opts);
+        //     dvui_opts.addChecks(dvui_wio, "dvui_wio");
+        //     if (test_dvui_and_app) {
+        //         dvui_opts.addTests(dvui_wio, "dvui_wio");
+        //     }
+        //
+        //     linkBackend(dvui_wio, wio_backend_mod);
+        //
+        //     const example_opts: ExampleOptions = .{
+        //         .dvui_mod = dvui_wio,
+        //         .backend_name = "wio-backend",
+        //         .backend_mod = wio_backend_mod,
+        //     };
+        //     _ = addExample("wio-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
+        //     if (dvui_opts.render_backend == .vulkan) {
+        //         _ = addExample("wio-standalone", b.path("examples/wio-vulkan-standalone.zig"), true, example_opts, dvui_opts);
+        //         _ = addExample("wio-ontop", b.path("examples/wio-vulkan-ontop.zig"), true, example_opts, dvui_opts);
+        //     } else {
+        //         _ = addExample("wio-standalone", b.path("examples/wio-standalone.zig"), true, example_opts, dvui_opts);
+        //         _ = addExample("wio-ontop", b.path("examples/wio-ontop.zig"), true, example_opts, dvui_opts);
+        //     }
+        // },
+        // FIXME 0.17 : dependency not ready
+        // .pugl => {
+        //     dvui_opts.setDefaults(.{ .libc = true, .freetype = true, .tiny_file_dialogs = true, .stb_image = true, .tree_sitter = true });
+        //
+        //     if (dvui_opts.render_backend == .default) {
+        //         dvui_opts.render_backend = .opengl;
+        //     }
+        //
+        //     const pugl_backend_mod = b.addModule("pugl", .{
+        //         .root_source_file = b.path("src/backends/pugl.zig"),
+        //         .target = target,
+        //         .optimize = optimize,
+        //     });
+        //     dvui_opts.addChecks(pugl_backend_mod, "pugl-backend");
+        //     dvui_opts.addTests(pugl_backend_mod, "pugl-backend");
+        //
+        //     if (b.lazyDependency("pugl", .{
+        //         .target = target,
+        //         .optimize = optimize,
+        //         .opengl = true,
+        //     })) |pugl| {
+        //         pugl_backend_mod.addImport("pugl", pugl.module("pugl"));
+        //         pugl_backend_mod.addImport("pugl-opengl", pugl.module("backend_opengl"));
+        //     }
+        //
+        //     const dvui_pugl = addDvuiModule("dvui_pugl", dvui_opts);
+        //     dvui_opts.addChecks(dvui_pugl, "dvui_pugl");
+        //     if (test_dvui_and_app)
+        //         dvui_opts.addTests(dvui_pugl, "dvui_pugl");
+        //
+        //     linkBackend(dvui_pugl, pugl_backend_mod);
+        //
+        //     const example_opts: ExampleOptions = .{
+        //         .dvui_mod = dvui_pugl,
+        //         .backend_name = "pugl-backend",
+        //         .backend_mod = pugl_backend_mod,
+        //     };
+        //
+        //     _ = addExample("pugl-standalone", b.path("examples/pugl-standalone.zig"), true, example_opts, dvui_opts);
+        //     _ = addExample("pugl-app", b.path("examples/app.zig"), test_dvui_and_app, example_opts, dvui_opts);
+        // },
     }
 }
 
@@ -1420,16 +1425,17 @@ pub fn addDvuiModule(
     });
     switch (opts.render_backend) {
         .default => renderer_mod.root_source_file = b.path("src/backends/render/default.zig"),
-        .opengl => {
-            renderer_mod.root_source_file = b.path("src/backends/render/opengl.zig");
-            if (b.lazyDependency("opengl", .{
-                .major_version = 3,
-                .minor_version = 2,
-                .profile = .core,
-            })) |opengl| {
-                renderer_mod.addImport("gl", opengl.module("opengl"));
-            }
-        },
+        // FIXME 0.17 : dependency not ready
+        // .opengl => {
+        //     renderer_mod.root_source_file = b.path("src/backends/render/opengl.zig");
+        //     if (b.lazyDependency("opengl", .{
+        //         .major_version = 3,
+        //         .minor_version = 2,
+        //         .profile = .core,
+        //     })) |opengl| {
+        //         renderer_mod.addImport("gl", opengl.module("opengl"));
+        //     }
+        // },
         .vulkan => {
             renderer_mod.root_source_file = b.path("src/backends/render/vulkan.zig");
             const registry = if (b.graph.environ_map.get("VULKAN_SDK")) |sdk|

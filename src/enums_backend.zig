@@ -14,8 +14,8 @@ pub const Backend = enum {
     dx11,
     // glfw, FIXME 0.17
     web,
-    wio,
-    pugl,
+    // wio, FIXME 0.17
+    // pugl, FIXME 0.17
     /// Does no rendering!
     testing,
     /// Forwards rendering to a host-injected bridge (plugin dylibs).
@@ -24,6 +24,6 @@ pub const Backend = enum {
 
 pub const RenderBackend = enum {
     default,
-    opengl,
+    // opengl, FIXME 0.17
     vulkan,
 };
